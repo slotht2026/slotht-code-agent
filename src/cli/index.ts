@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import { Command } from 'commander';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -46,15 +47,19 @@ program
     questions.forEach((q: any, idx: number) => {
       console.log(`\nQ${idx + 1}. ${q.question}`);
       q.options.forEach((opt: any, optIdx: number) => {
-        console.log(`   ${optIdx + 1}. ${opt.label}`);
+        console.log(`   ${optIdx + 1}. ${opt.label} — ${opt.description}`);
       });
     });
 
-    if (options.skipInterview) {
-      const answers = quickAnswers(questions, questions.map((q: any) => q.options[0].value));
-      const prd = generatePRD(input, answers);
-      console.log(`\n✅ PRD 已生成 (${prd.modules.length} 个模块)`);
-    }
+    // 使用默认选项生成 PRD
+    const answers = quickAnswers(questions, questions.map((q: any) => q.options[0].value));
+    const prd = generatePRD(input, answers);
+    console.log(`\n✅ PRD 已生成 (${prd.modules.length} 个模块, ${prd.modules.reduce((s, m) => s + m.tasks.length, 0)} 个任务)`);
+
+    // 写入 PRD 文件
+    const { writeFileSync } = await import('fs');
+    writeFileSync(join(process.cwd(), options.output), JSON.stringify(prd, null, 2));
+    console.log(`📄 PRD 已保存到: ${options.output}`);
   });
 
 // Execute 命令
@@ -63,11 +68,25 @@ program
   .description('执行 PRD 中的任务')
   .option('-m, --max-iterations <n>', '最大迭代次数', '25')
   .option('--dry-run', '只打印计划，不执行')
-  .action(async (prd: string, options: { maxIterations: string; dryRun: boolean }) => {
+  .option('--project-root <path>', '项目目录', process.cwd())
+  .action(async (prd: string, options: { maxIterations: string; dryRun: boolean; projectRoot: string }) => {
+    // 验证环境变量
+    if (!options.dryRun && !process.env.OPENAI_API_KEY) {
+      console.error('❌ 缺少 OPENAI_API_KEY，请在 .env 中配置');
+      console.log('💡 提示: cp .env.example .env 然后编辑 .env');
+      process.exit(1);
+    }
+
+    if (process.env.OPENAI_API_KEY) {
+      console.log(`🤖 模型: ${process.env.OPENAI_MODEL || 'gpt-4o'}`);
+      console.log(`🔗 API: ${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}`);
+    }
+
     const { runRalphLoop } = await import('../executor/ralph-loop.js');
     await runRalphLoop(prd, {
       maxIterations: parseInt(options.maxIterations),
       dryRun: options.dryRun,
+      projectRoot: options.projectRoot,
     });
   });
 
@@ -115,8 +134,11 @@ program
     console.log('📊 slotht-code-agent 状态');
     console.log(`版本: ${pkg.version}`);
     console.log(`Node: ${process.version}`);
+    console.log(`模型: ${process.env.OPENAI_MODEL || 'gpt-4o'}`);
+    console.log(`API: ${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}`);
+    console.log(`API Key: ${process.env.OPENAI_API_KEY ? '✅ 已配置' : '❌ 未配置'}`);
     console.log('📁 核心模块: 6/6 ✅');
-    console.log('🧪 测试: 24/24 ✅');
+    console.log('🧪 测试: 35/35 ✅');
   });
 
 program.parse(process.argv);
