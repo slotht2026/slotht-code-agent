@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# GitNexus
+.gitnexus/
+~/.gitnexus/
+
+# IMA credentials
+~/.config/ima/
+
+# Tentacle notes (local only)
+tentacles/*/notes/
+
+# Progress logs (optional, can be committed)
+# progress.txt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage
+coverage/

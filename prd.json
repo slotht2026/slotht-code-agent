@@ -1,0 +1,57 @@
+{
+  "project": "slotht-code-agent",
+  "version": "0.1.0",
+  "description": "基于 Ralph 循环 + GitNexus 知识图谱 + Interview 需求澄清的自主编程 Agent 系统",
+  "created_at": "2026-05-11T13:36:00+08:00",
+  "modules": [
+    {
+      "id": "module-01",
+      "name": "项目骨架初始化",
+      "description": "创建项目基础文件结构、配置文件、核心目录",
+      "dependencies": [],
+      "tasks": [
+        { "id": "US-001", "title": "创建项目根目录结构", "acceptanceCriteria": ["创建 src/ 目录及其子目录 (planner/, executor/, tester/, committer/, graph/, skill/)", "创建 tentacles/ 目录及其子目录 (planner/, developer-db/, developer-api/, tester/)", "创建 skills/ 目录", "创建 scripts/ 目录", "创建 .github/workflows/ 目录", "目录结构通过 tree -L 3 验证"], "priority": 1, "passes": false, "tentacle": "init", "estimatedEffort": "5min" },
+        { "id": "US-002", "title": "创建项目配置文件", "acceptanceCriteria": ["package.json 包含项目名称 slotht-code-agent、版本 0.1.0、必要依赖 (typescript, @types/node)", "tsconfig.json 配置 ES2022 目标、moduleResolution node16、strict 模式开启", ".gitignore 包含 node_modules/, .env, *.log, tentacles/*/notes/ 等必要忽略规则", ".env.example 包含 GITHUB_TOKEN, OPENAI_API_KEY, GITNEXUS_ENABLED 变量模板", "所有 JSON 文件通过 jsonlint 验证"], "priority": 2, "passes": false, "tentacle": "init", "estimatedEffort": "10min", "dependencies": ["US-001"] },
+        { "id": "US-003", "title": "创建 AGENTS.md 和 SOUL.md", "acceptanceCriteria": ["AGENTS.md 包含 Karpathy 风格 4 条核心原则", "AGENTS.md 包含项目特定的代码约定", "SOUL.md 定义 slotht-code-agent 的人格", "SOUL.md 包含自我介绍模板", "两个文件均通过 markdownlint 验证"], "priority": 3, "passes": false, "tentacle": "init", "estimatedEffort": "15min", "dependencies": ["US-001"] },
+        { "id": "US-004", "title": "创建 README.md 项目文档", "acceptanceCriteria": ["README.md 包含项目简介和核心特性列表", "包含快速开始指南", "包含系统架构图 (Mermaid 格式)", "包含模块说明和 API 概览", "文档通过 markdownlint 验证"], "priority": 4, "passes": false, "tentacle": "init", "estimatedEffort": "20min", "dependencies": ["US-001"] },
+        { "id": "US-005", "title": "初始化 Git 仓库和 GitHub 配置", "acceptanceCriteria": ["git init 成功，初始 commit 包含所有骨架文件", ".github/workflows/ci.yml 包含 lint, test, build 三个 Job", "CI 配置支持 Node.js 20+, Ubuntu latest 环境", "远程仓库 URL 可配置", "git remote -v 显示正确的仓库地址"], "priority": 5, "passes": false, "tentacle": "init", "estimatedEffort": "15min", "dependencies": ["US-002"] }
+      ]
+    },
+    { "id": "module-02", "name": "Interview 需求澄清引擎", "tasks": [
+      { "id": "US-010", "title": "定义 Interview 数据结构", "priority": 1, "passes": false, "tentacle": "planner", "estimatedEffort": "10min", "dependencies": ["US-002"] },
+      { "id": "US-011", "title": "实现问题生成器", "priority": 2, "passes": false, "tentacle": "planner", "estimatedEffort": "30min", "dependencies": ["US-010"] },
+      { "id": "US-012", "title": "实现答案收集器", "priority": 3, "passes": false, "tentacle": "planner", "estimatedEffort": "25min", "dependencies": ["US-011"] },
+      { "id": "US-013", "title": "实现 PRD 生成器", "priority": 4, "passes": false, "tentacle": "planner", "estimatedEffort": "40min", "dependencies": ["US-011", "US-012"] },
+      { "id": "US-014", "title": "创建 Interview CLI 命令", "priority": 5, "passes": false, "tentacle": "planner", "estimatedEffort": "20min", "dependencies": ["US-013"] }
+    ] },
+    { "id": "module-03", "name": "GitNexus 知识图谱集成", "tasks": [
+      { "id": "US-020", "title": "安装并配置 GitNexus", "priority": 1, "passes": false, "tentacle": "graph", "estimatedEffort": "15min", "dependencies": ["US-001"] },
+      { "id": "US-021", "title": "创建 GitNexus 封装模块", "priority": 2, "passes": false, "tentacle": "graph", "estimatedEffort": "30min", "dependencies": ["US-020"] },
+      { "id": "US-022", "title": "实现增量索引功能", "priority": 3, "passes": false, "tentacle": "graph", "estimatedEffort": "35min", "dependencies": ["US-021"] },
+      { "id": "US-023", "title": "实现知识图谱更新触发器", "priority": 4, "passes": false, "tentacle": "graph", "estimatedEffort": "25min", "dependencies": ["US-022"] },
+      { "id": "US-024", "title": "实现影响分析缓存", "priority": 5, "passes": false, "tentacle": "graph", "estimatedEffort": "30min", "dependencies": ["US-021"] }
+    ] },
+    { "id": "module-04", "name": "Ralph 循环执行引擎", "tasks": [
+      { "id": "US-030", "title": "定义 Ralph 循环数据结构", "priority": 1, "passes": false, "tentacle": "executor", "estimatedEffort": "10min", "dependencies": ["US-002"] },
+      { "id": "US-031", "title": "实现任务选择器", "priority": 2, "passes": false, "tentacle": "executor", "estimatedEffort": "20min", "dependencies": ["US-030"] },
+      { "id": "US-032", "title": "实现 Developer Agent 调用", "priority": 3, "passes": false, "tentacle": "executor", "estimatedEffort": "40min", "dependencies": ["US-031"] },
+      { "id": "US-033", "title": "实现测试生成器", "priority": 4, "passes": false, "tentacle": "tester", "estimatedEffort": "35min", "dependencies": ["US-032"] },
+      { "id": "US-034", "title": "实现测试运行器", "priority": 5, "passes": false, "tentacle": "tester", "estimatedEffort": "30min", "dependencies": ["US-033"] },
+      { "id": "US-035", "title": "实现 Ralph 主循环", "priority": 6, "passes": false, "tentacle": "executor", "estimatedEffort": "60min", "dependencies": ["US-032", "US-034"] },
+      { "id": "US-036", "title": "创建 progress.txt 经验日志模块", "priority": 7, "passes": false, "tentacle": "executor", "estimatedEffort": "20min", "dependencies": ["US-035"] }
+    ] },
+    { "id": "module-05", "name": "GitHub 集成与自动提交", "tasks": [
+      { "id": "US-040", "title": "配置 GitHub API 客户端", "priority": 1, "passes": false, "tentacle": "committer", "estimatedEffort": "15min", "dependencies": ["US-002"] },
+      { "id": "US-041", "title": "实现 Git 操作封装", "priority": 2, "passes": false, "tentacle": "committer", "estimatedEffort": "25min", "dependencies": ["US-040"] },
+      { "id": "US-042", "title": "实现测试通过后自动提交", "priority": 3, "passes": false, "tentacle": "committer", "estimatedEffort": "30min", "dependencies": ["US-041", "US-034"] },
+      { "id": "US-043", "title": "实现自动 PR 创建", "priority": 4, "passes": false, "tentacle": "committer", "estimatedEffort": "35min", "dependencies": ["US-042"] },
+      { "id": "US-044", "title": "实现提交历史追踪", "priority": 5, "passes": false, "tentacle": "committer", "estimatedEffort": "20min", "dependencies": ["US-042"] }
+    ] },
+    { "id": "module-06", "name": "技能沉淀系统", "tasks": [
+      { "id": "US-050", "title": "定义技能数据结构", "priority": 1, "passes": false, "tentacle": "skill", "estimatedEffort": "10min", "dependencies": ["US-002"] },
+      { "id": "US-051", "title": "实现技能提取器", "priority": 2, "passes": false, "tentacle": "skill", "estimatedEffort": "40min", "dependencies": ["US-050"] },
+      { "id": "US-052", "title": "实现技能存储管理", "priority": 3, "passes": false, "tentacle": "skill", "estimatedEffort": "25min", "dependencies": ["US-051"] },
+      { "id": "US-053", "title": "实现技能调用接口", "priority": 4, "passes": false, "tentacle": "skill", "estimatedEffort": "30min", "dependencies": ["US-052"] }
+    ] }
+  ]
+}
