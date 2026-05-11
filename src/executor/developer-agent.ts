@@ -65,7 +65,12 @@ ${lessons ? `## 历史教训\n${lessons}\n` : ''}
 // 代码内容
 \`\`\`
 
-每个文件用一个代码块，以 filepath: 开头指定路径。`;
+每个文件用一个代码块，以 filepath: 开头指定路径。
+
+## 重要约束
+- 如果生成 package.json，必须包含 vitest 作为 devDependency，且 test 脚本设为 "vitest run"
+- 如果生成 tsconfig.json，target 设为 ES2022，module 设为 Node16，moduleResolution 设为 Node16
+- 所有 TypeScript 文件使用 ES Module 格式（import/export）`;
   }
 
   /**

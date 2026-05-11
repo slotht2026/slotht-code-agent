@@ -46,20 +46,20 @@ describe('TesterAgent', () => {
     expect(tests[Object.keys(tests)[0]]).toContain('it');
   });
 
-  it('should extract function name from code', async () => {
+  it('should extract exports from code', async () => {
     const { TesterAgent } = await import('../src/tester/tester-agent.js');
     const agent = new TesterAgent('/tmp');
     const code = 'export async function authenticateUser() {}';
-    const result = (agent as any).extractFunctionName(code);
-    expect(result).toBe('authenticateUser');
+    const result = (agent as any).extractExports(code);
+    expect(result).toContain('authenticateUser');
   });
 
-  it('should handle code without functions', async () => {
+  it('should handle code without exports', async () => {
     const { TesterAgent } = await import('../src/tester/tester-agent.js');
     const agent = new TesterAgent('/tmp');
     const code = 'const x = 1;';
-    const result = (agent as any).extractFunctionName(code);
-    expect(result).toBeNull();
+    const result = (agent as any).extractExports(code);
+    expect(result).toEqual([]);
   });
 });
 

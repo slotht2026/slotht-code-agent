@@ -231,7 +231,11 @@ export async function runRalphLoop(
     console.log(`\n  ⏳ [3/4] Tester Agent 运行测试...`);
     let testResults: { passed: boolean; total: number; failures: string[]; output: string };
 
-    // 先生成测试文件
+    // 确保测试基础设施就绪
+    tester.ensureTestInfrastructure();
+    await tester.ensureVitestInstalled();
+
+    // 生成测试文件
     const testFiles = tester.generateTests(task, generatedFiles);
     tester.writeTests(testFiles);
     console.log(`     📝 生成了 ${Object.keys(testFiles).length} 个测试文件`);
