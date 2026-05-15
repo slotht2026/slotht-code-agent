@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generateQuestions, getDefaultQuestions } from '../src/planner/question-generator';
-import { quickAnswers } from '../src/planner/answer-collector';
-import { generatePRD } from '../src/planner/prd-generator';
+import { generateQuestions, getDefaultQuestions } from '../src/planner/question-generator.js';
+import { quickAnswers } from '../src/planner/answer-collector.js';
+import { generatePRD } from '../src/planner/prd-generator.js';
 
 describe('Question Generator', () => {
   it('should generate auth-related questions for login requirement', () => {
@@ -38,9 +38,9 @@ describe('Answer Collector', () => {
 });
 
 describe('PRD Generator', () => {
-  it('should generate PRD from answers', () => {
+  it('should generate PRD from answers (template mode)', async () => {
     const answers = quickAnswers(generateQuestions('用户登录系统'), ['email_password', 'basic', 'postgres_prisma', 'local']);
-    const prd = generatePRD('用户登录系统', answers);
+    const prd = await generatePRD('用户登录系统', answers);
 
     expect(prd.project).toBe('用户登录系统');
     expect(prd.modules.length).toBeGreaterThanOrEqual(2);
@@ -48,12 +48,26 @@ describe('PRD Generator', () => {
     expect(prd.technicalConstraints.length).toBe(4);
   });
 
-  it('should include database module in PRD', () => {
+  it('should include database module in PRD', async () => {
     const answers = quickAnswers(getDefaultQuestions(), ['email_password', 'postgres_prisma', 'docker_cloud']);
-    const prd = generatePRD('电商后台', answers);
+    const prd = await generatePRD('电商后台', answers);
 
     const infraModule = prd.modules.find((m) => m.id === 'module-infra');
     expect(infraModule).toBeDefined();
     expect(infraModule!.tasks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should have valid task dependencies', async () => {
+    const answers = quickAnswers(getDefaultQuestions(), ['email_password', 'postgres_prisma', 'local']);
+    const prd = await generatePRD('测试项目', answers);
+
+    const allTaskIds = new Set(prd.modules.flatMap(m => m.tasks).map(t => t.id));
+    for (const mod of prd.modules) {
+      for (const task of mod.tasks) {
+        for (const dep of task.dependencies || []) {
+          expect(allTaskIds.has(dep)).toBe(true);
+        }
+      }
+    }
   });
 });

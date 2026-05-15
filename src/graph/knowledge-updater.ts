@@ -1,7 +1,8 @@
 import { GitNexusWrapper } from './gitnexus-wrapper.js';
 import { IncrementalIndexer } from './incremental-indexer.js';
 import { ImpactCache } from './impact-cache.js';
-import { ProgressLogger } from '../executor/ralph-loop.js';
+import { ProgressLogger } from '../core/progress-logger.js';
+import { logger } from '../core/logger.js';
 
 /**
  * 知识图谱更新触发器
@@ -23,25 +24,24 @@ export class KnowledgeUpdater {
    * 在代码提交后自动触发知识图谱更新
    */
   async updateOnCommit(commitHash: string): Promise<void> {
-    console.log(`🧠 检测到新提交：${commitHash.slice(0, 7)}`);
+    logger.info({ commit: commitHash.slice(0, 7) }, '检测到新提交');
 
-    // 1. 获取变更文件
     const changedFiles = await this.indexer.getChangedFiles(commitHash);
     if (changedFiles.length === 0) {
-      console.log('ℹ️  没有变更文件，跳过索引');
+      logger.info('没有变更文件，跳过索引');
       return;
     }
 
-    console.log(`📝 ${changedFiles.length} 个文件已变更`);
+    logger.info({ count: changedFiles.length }, '文件已变更');
 
-    // 2. 增量索引
     const result = await this.indexer.analyzeIncremental(changedFiles);
-    console.log(`✅ 索引完成：${result.indexedCount} 个文件，耗时 ${result.durationMs}ms`);
+    logger.info({
+      indexed: result.indexedCount,
+      durationMs: result.durationMs,
+    }, '索引完成');
 
-    // 3. 清除受影响的缓存
     this.impactCache.invalidateByFiles(changedFiles);
 
-    // 4. 记录到进度日志
     this.progress.appendLesson('knowledge-update', `
 提交 ${commitHash.slice(0, 7)} 触发知识图谱更新
 - 变更文件：${changedFiles.length} 个
@@ -54,12 +54,12 @@ export class KnowledgeUpdater {
    * 手动触发全量索引
    */
   async forceFullIndex(): Promise<void> {
-    console.log('🧠 强制全量索引...');
+    logger.info('强制全量索引...');
     const result = await this.gitnexus.analyze();
     if (result.success) {
-      console.log('✅ 全量索引完成');
+      logger.info('全量索引完成');
     } else {
-      console.error(`❌ 全量索引失败：${result.error}`);
+      logger.error({ error: result.error }, '全量索引失败');
     }
   }
 }

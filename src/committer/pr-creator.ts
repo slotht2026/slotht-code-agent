@@ -1,17 +1,20 @@
 import { GitHubClient } from './github-client.js';
-import { AutoCommit } from './auto-commit.js';
+import { GitOps } from './git-ops.js';
 import type { Task } from '../planner/types.js';
+import { logger } from '../core/logger.js';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 /**
  * PR 创建器
  */
 export class PRCreator {
   private github: GitHubClient;
-  private autoCommit: AutoCommit;
+  private git: GitOps;
 
   constructor(github: GitHubClient, cwd: string = process.cwd()) {
     this.github = github;
-    this.autoCommit = new AutoCommit(cwd);
+    this.git = new GitOps(cwd);
   }
 
   /**
@@ -22,17 +25,15 @@ export class PRCreator {
     branchName: string
   ): Promise<{ number: number; url: string } | null> {
     try {
-      // 创建分支
       await this.github.createBranch(branchName);
-      console.log(`🌿 分支已创建：${branchName}`);
+      logger.info({ branch: branchName }, '分支已创建');
 
-      // 创建 PR
       const pr = await this.github.createPR(task, branchName);
-      console.log(`📝 PR 已创建：#${pr.number} - ${pr.url}`);
+      logger.info({ prNumber: pr.number, url: pr.url }, 'PR 已创建');
 
       return pr;
     } catch (error: any) {
-      console.error(`创建 PR 失败：${error.message}`);
+      logger.error({ error: error.message }, '创建 PR 失败');
       return null;
     }
   }
@@ -45,7 +46,7 @@ export class CommitTracker {
   private storagePath: string;
 
   constructor(cwd: string = process.cwd()) {
-    this.storagePath = `${cwd}/.slotht/commits.json`;
+    this.storagePath = join(cwd, '.slotht', 'commits.json');
   }
 
   /**
@@ -65,11 +66,20 @@ export class CommitTracker {
     return commits.filter((c) => c.taskId === taskId);
   }
 
+  /**
+   * 导出提交报告
+   */
+  exportReport(): string {
+    const commits = this.loadCommits();
+    return commits
+      .map((c) => `${c.timestamp} [${c.taskId}] ${c.message} (${c.commitHash.slice(0, 7)})`)
+      .join('\n');
+  }
+
   private loadCommits(): any[] {
     try {
-      const fs = require('fs');
-      if (fs.existsSync(this.storagePath)) {
-        return JSON.parse(fs.readFileSync(this.storagePath, 'utf-8'));
+      if (existsSync(this.storagePath)) {
+        return JSON.parse(readFileSync(this.storagePath, 'utf-8'));
       }
     } catch {
       // ignore
@@ -78,20 +88,7 @@ export class CommitTracker {
   }
 
   private saveCommits(commits: any[]): void {
-    const fs = require('fs');
-    const path = require('path');
-    fs.mkdirSync(path.dirname(this.storagePath), { recursive: true });
-    fs.writeFileSync(this.storagePath, JSON.stringify(commits, null, 2));
-  }
-
-  /**
-   * 导出提交报告
-   */
-  exportReport(): string {
-    const commits = this.loadCommits();
-    const report = commits
-      .map((c) => `${c.timestamp} [${c.taskId}] ${c.message} (${c.commitHash.slice(0, 7)})`)
-      .join('\n');
-    return report;
+    mkdirSync(join(this.storagePath, '..'), { recursive: true });
+    writeFileSync(this.storagePath, JSON.stringify(commits, null, 2));
   }
 }

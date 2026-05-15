@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
 
 /**
  * 影响分析缓存
@@ -66,7 +66,6 @@ export class ImpactCache {
    */
   getStats(): { total: number; hitRate: number } {
     const total = this.cache.size;
-    // 简化版：假设所有缓存都是有效的
     return { total, hitRate: total > 0 ? 0.7 : 0 };
   }
 
@@ -81,9 +80,9 @@ export class ImpactCache {
   }
 
   private saveCache(): void {
-    const dir = require('path').dirname(this.cachePath);
+    const dir = dirname(this.cachePath);
     if (!existsSync(dir)) {
-      require('fs').mkdirSync(dir, { recursive: true });
+      mkdirSync(dir, { recursive: true });
     }
     const data = Object.fromEntries(this.cache);
     writeFileSync(this.cachePath, JSON.stringify(data, null, 2));

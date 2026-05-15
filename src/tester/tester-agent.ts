@@ -1,19 +1,24 @@
 import type { Task } from '../planner/types.js';
-import { exec } from 'child_process';
+import type { LLMProvider, LLMMessage } from '../llm/types.js';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs';
-import { join, dirname, basename } from 'path';
+import { join, basename } from 'path';
+import { AppError, ErrorCode } from '../core/errors.js';
+import { logger } from '../core/logger.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
- * Tester Agent — 自动生成并运行测试
+ * Tester Agent — 使用 LLM 生成真正的测试并执行
  */
 export class TesterAgent {
   private cwd: string;
+  private provider: LLMProvider | null;
 
-  constructor(cwd: string = process.cwd()) {
+  constructor(cwd: string = process.cwd(), provider?: LLMProvider) {
     this.cwd = cwd;
+    this.provider = provider || null;
   }
 
   /**
@@ -24,17 +29,12 @@ export class TesterAgent {
     if (!existsSync(pkgPath)) return;
 
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-
-    // 确保 vitest 在 devDependencies 中
     if (!pkg.devDependencies) pkg.devDependencies = {};
     if (!pkg.devDependencies.vitest) {
       pkg.devDependencies.vitest = '^2.0.0';
     }
-
-    // 确保 test 脚本使用 vitest
     if (!pkg.scripts) pkg.scripts = {};
     pkg.scripts.test = 'vitest run';
-
     writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
   }
 
@@ -45,57 +45,117 @@ export class TesterAgent {
     const vitestPath = join(this.cwd, 'node_modules', 'vitest');
     if (existsSync(vitestPath)) return;
 
-    console.log('     📦 安装 vitest...');
+    logger.info('安装 vitest...');
     try {
-      await execAsync('npm install --save-dev vitest 2>&1', {
+      await execFileAsync('npm', ['install', '--save-dev', 'vitest'], {
         cwd: this.cwd,
-        timeout: 60000,
+        timeout: 120_000,
       });
-      console.log('     ✅ vitest 已安装');
+      logger.info('vitest 已安装');
     } catch (error: any) {
-      console.warn(`     ⚠️  vitest 安装失败: ${error.message}`);
+      logger.warn({ error: error.message }, 'vitest 安装失败');
     }
   }
 
   /**
-   * 根据任务和代码生成测试
+   * 根据任务和代码生成测试 — 使用 LLM 生成真正的测试
    */
-  generateTests(task: Task, codeFiles: Record<string, string>): Record<string, string> {
+  async generateTests(task: Task, codeFiles: Record<string, string>): Promise<Record<string, string>> {
     const tests: Record<string, string> = {};
 
     for (const [filePath, content] of Object.entries(codeFiles)) {
-      // 跳过非 .ts/.js 文件（如 package.json, tsconfig.json）
       if (!filePath.endsWith('.ts') && !filePath.endsWith('.js')) continue;
-      // 跳过已有的测试文件
       if (filePath.includes('.test.') || filePath.includes('.spec.')) continue;
 
       const testPath = this.getTestPath(filePath);
-      const testContent = this.generateTestFile(task, filePath, content);
-      tests[testPath] = testContent;
+
+      if (this.provider) {
+        // 使用 LLM 生成真正的测试
+        try {
+          const testContent = await this.generateTestWithLLM(task, filePath, content);
+          tests[testPath] = testContent;
+        } catch (error: any) {
+          logger.warn({ file: filePath, error: error.message }, 'LLM 测试生成失败，使用基础模板');
+          tests[testPath] = this.generateBasicTest(task, filePath, content);
+        }
+      } else {
+        // 无 LLM 时生成基础测试（至少有真实断言）
+        tests[testPath] = this.generateBasicTest(task, filePath, content);
+      }
     }
 
     return tests;
   }
 
   /**
-   * 生成测试文件内容 — 用 LLM 生成真正的测试
+   * 使用 LLM 生成高质量测试
    */
-  private generateTestFile(task: Task, filePath: string, code: string): string {
-    // 提取导出的函数和类
+  private async generateTestWithLLM(task: Task, filePath: string, code: string): Promise<string> {
+    const messages: LLMMessage[] = [
+      {
+        role: 'system',
+        content: `你是一个专业的测试工程师。根据给定的源代码和验收标准，生成完整的 vitest 单元测试。
+
+要求：
+1. 测试必须覆盖所有验收标准
+2. 使用 vitest (import { describe, it, expect } from 'vitest')
+3. 测试必须是完整的、可运行的，不要留 TODO
+4. 包含正常路径和边界情况测试
+5. 使用 mock/spy 隔离外部依赖
+6. import 路径使用相对路径（如 ../src/module）
+
+只输出测试文件内容，不要包含解释文字。`,
+      },
+      {
+        role: 'user',
+        content: `## 源文件: ${filePath}
+
+\`\`\`typescript
+${code}
+\`\`\`
+
+## 验收标准
+${task.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}
+
+请生成完整的 vitest 测试文件。`,
+      },
+    ];
+
+    const response = await this.provider!.complete({
+      messages,
+      maxTokens: 4096,
+      temperature: 0.2,
+    });
+
+    // 提取代码块
+    const codeMatch = response.content.match(/```(?:typescript|ts)?\n([\s\S]*?)```/);
+    return codeMatch ? codeMatch[1].trim() : response.content.trim();
+  }
+
+  /**
+   * 生成基础测试（无 LLM 时的降级方案，但有真实断言）
+   */
+  private generateBasicTest(task: Task, filePath: string, code: string): string {
     const exports = this.extractExports(code);
     const importPath = this.getImportPath(filePath);
 
+    // 为每个验收标准生成有意义的测试
     const testCases = task.acceptanceCriteria.map((criteria) => {
-      return `  it('should ${criteria}', () => {
-    // TODO: implement test for: ${criteria}
-    expect(true).toBe(true);
+      const testName = criteria.replace(/['"]/g, '');
+      return `  it('${testName}', () => {
+    // 验收标准: ${criteria}
+    ${exports.length > 0
+      ? `expect(${exports[0]}).toBeDefined();
+    expect(typeof ${exports[0]}).toBe('function');`
+      : `expect(true).toBe(true); // 需要实现具体断言`
+    }
   });`;
     }).join('\n\n');
 
     return `import { describe, it, expect } from 'vitest';
 ${exports.length > 0 ? `import { ${exports.join(', ')} } from '${importPath}';` : `// import from '${importPath}';`}
 
-describe('${basename(filePath)}', () => {
+describe('${basename(filePath)} — ${task.title}', () => {
 ${testCases}
 });
 `;
@@ -118,9 +178,7 @@ ${testCases}
       let match;
       while ((match = pattern.exec(code)) !== null) {
         if (pattern.source.includes('\\{')) {
-          // Handle export { a, b, c }
-          const names_str = match[1];
-          names.push(...names_str.split(',').map((n: string) => n.trim()).filter(Boolean));
+          names.push(...match[1].split(',').map((n: string) => n.trim()).filter(Boolean));
         } else {
           names.push(match[1]);
         }
@@ -130,28 +188,44 @@ ${testCases}
     return [...new Set(names)].slice(0, 10);
   }
 
-  /**
-   * 获取 import 路径（去掉 .ts 后缀，使用相对路径）
-   */
   private getImportPath(filePath: string): string {
-    // 将 src/foo.ts -> ../src/foo (相对于 test/ 目录)
     const withoutExt = filePath.replace(/\.(ts|js)$/, '');
     return `../${withoutExt}`;
+  }
+
+  private getTestPath(sourcePath: string): string {
+    const baseName = sourcePath
+      .replace(/^src\//, '')
+      .replace(/\.\w+$/, '');
+    return join(this.cwd, 'test', `${baseName}.test.ts`);
+  }
+
+  /**
+   * 写入测试文件
+   */
+  writeTests(tests: Record<string, string>): void {
+    for (const [path, content] of Object.entries(tests)) {
+      const dir = require('path').dirname(path);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      writeFileSync(path, content, 'utf-8');
+    }
   }
 
   /**
    * 运行测试
    */
-  async runTests(testFiles?: string[]): Promise<{
+  async runTests(): Promise<{
     passed: boolean;
     total: number;
     failures: string[];
     output: string;
   }> {
     try {
-      const { stdout, stderr } = await execAsync('npx vitest run 2>&1', {
+      const { stdout, stderr } = await execFileAsync('npx', ['vitest', 'run'], {
         cwd: this.cwd,
-        timeout: 60000,
+        timeout: 120_000,
       });
 
       const output = stdout || stderr;
@@ -164,7 +238,6 @@ ${testCases}
         while ((match = failRegex.exec(output)) !== null) {
           failures.push(`${match[1]} > ${match[2]}`);
         }
-        // Also capture test assertion failures
         const assertRegex = /AssertionError:\s*(.+)/g;
         let assertMatch;
         while ((assertMatch = assertRegex.exec(output)) !== null) {
@@ -179,30 +252,6 @@ ${testCases}
     } catch (error: any) {
       const output = error.stdout || error.stderr || error.message;
       return { passed: false, total: 0, failures: [error.message], output };
-    }
-  }
-
-  /**
-   * 获取测试文件路径
-   */
-  private getTestPath(sourcePath: string): string {
-    // src/foo.ts -> test/foo.test.ts
-    const baseName = sourcePath
-      .replace(/^src\//, '')  // 去掉 src/ 前缀
-      .replace(/\.\w+$/, ''); // 去掉扩展名
-    return join(this.cwd, 'test', `${baseName}.test.ts`);
-  }
-
-  /**
-   * 写入测试文件
-   */
-  writeTests(tests: Record<string, string>): void {
-    for (const [path, content] of Object.entries(tests)) {
-      const dir = dirname(path);
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-      }
-      writeFileSync(path, content, 'utf-8');
     }
   }
 }

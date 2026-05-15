@@ -12,6 +12,7 @@
 | 🐙 **触手隔离** | OctoGent 风格上下文隔离，专注单模块 |
 | 📚 **技能沉淀** | 完成任务后提取可复用模式 |
 | 🤖 **GitHub 集成** | 测试通过后自动提交和创建 PR |
+| 🔌 **多 LLM 支持** | OpenAI / Azure / Ollama 等多 Provider 切换 |
 
 ## 快速开始
 
@@ -34,11 +35,23 @@ cp .env.example .env
 ### 运行
 
 ```bash
-# 启动 Interview 流程
+# 启动 Interview 流程（交互式）
 npm run slotht -- interview "帮我开发一个用户登录系统"
 
-# 或直接执行已有 PRD
+# 非交互模式（自动选择默认选项）
+npm run slotht -- interview "帮我开发一个用户登录系统" --non-interactive
+
+# 跳过 Interview，直接生成 PRD
+npm run slotht -- interview "帮我开发一个用户登录系统" --skip-interview
+
+# 执行已有 PRD
 npm run slotht -- execute prd.json
+
+# 只预览计划，不执行
+npm run slotht -- execute prd.json --dry-run
+
+# 查看项目状态
+npm run slotht -- status
 ```
 
 ## 系统架构
@@ -47,12 +60,12 @@ npm run slotht -- execute prd.json
 graph TD
     A[用户: 模糊需求] --> B[Planner Agent]
     B --> C[Interview 引擎: 需求澄清]
-    C --> D[PRD 生成: 原子任务]
+    C --> D[LLM PRD 生成: 原子任务]
     D --> E[Ralph 主循环]
     
     subgraph Ralph Loop
-        E --> F[Developer Agent: 生成代码]
-        F --> G[Tester Agent: 执行测试]
+        E --> F[Developer Agent: LLM 生成代码]
+        F --> G[Tester Agent: LLM 生成测试 + 执行]
         G --> H{测试通过?}
         H -->|是| I[Commit Agent: 提交到 GitHub]
         H -->|否| J[记录教训 → 重试]
@@ -60,26 +73,42 @@ graph TD
     end
     
     I --> K[GitNexus: 更新知识图谱]
-    I --> L[Skill Manager: 沉淀技能]
+    I --> L[Skill Manager: LLM 沉淀技能]
     L --> F
+
+    subgraph LLM Provider 抽象层
+        M[OpenAI]
+        N[Azure OpenAI]
+        O[Ollama / 本地模型]
+    end
+    
+    F --> M
+    G --> M
+    D --> M
 ```
 
 ## 模块说明
 
+### 🔌 LLM 抽象层 (`src/llm/`)
+- **Provider 接口** — 统一的 LLM 调用抽象
+- **OpenAI Provider** — 支持 OpenAI / Azure / 兼容 API
+- **工厂模式** — 支持 OpenAI、Azure、Ollama 等多 Provider
+- **自动重试** — 指数退避 + 超时控制
+
 ### 📋 Planner（规划者）
-- **Interview 引擎** — 生成选择题，澄清需求
-- **PRD 生成器** — 输出结构化任务列表
+- **Interview 引擎** — 生成选择题，交互式澄清需求
+- **PRD 生成器** — 使用 LLM 输出结构化任务列表（降级时使用模板）
 
 ### ⚡ Executor（执行者）
 - **Ralph 循环** — 测试驱动的迭代执行
-- **Developer Agent** — 调用 LLM 生成代码
+- **Developer Agent** — 调用 LLM 生成完整代码
 
 ### 🧪 Tester（测试者）
-- **测试生成器** — 自动生成单元测试
+- **LLM 测试生成** — 使用 LLM 生成有真实断言的测试
 - **测试运行器** — 执行并分析结果
 
 ### 📦 Committer（提交者）
-- **Git 操作** — 添加、提交、推送
+- **安全 Git 操作** — 使用 `execFile` 避免命令注入
 - **PR 创建** — 自动创建 Pull Request
 
 ### 🧠 Graph（知识图谱）
@@ -87,53 +116,63 @@ graph TD
 - **增量更新** — 提交后自动更新
 
 ### 📚 Skill（技能）
-- **技能提取** — 从完成的任务中提取模式
+- **LLM 技能提取** — 使用 LLM 从代码中提取可复用模式
 - **技能复用** — 新任务直接调用已有技能
 
-## API 概览
+### 🛡️ Core（核心基础设施）
+- **统一错误体系** — AppError + ErrorCode
+- **结构化日志** — 基于 pino 的日志系统
+- **进度日志** — 独立模块，避免循环依赖
 
-```typescript
-// Planner
-interface Planner {
-  interview(userInput: string): Promise<InterviewResult>;
-  generatePRD(userInput: string, answers: Answer[]): Promise<PRD>;
-}
+## 配置说明
 
-// Executor
-interface Executor {
-  runLoop(prdPath: string, maxIterations?: number): Promise<ExecutionResult>;
-}
+### LLM Provider 配置
 
-// Graph
-interface GraphUpdater {
-  analyzeIncremental(changedFiles: string[]): Promise<void>;
-  updateOnCommit(commitHash: string): Promise<void>;
-}
+```bash
+# OpenAI（默认）
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-xxx
+OPENAI_MODEL=gpt-4o
+OPENAI_BASE_URL=https://api.openai.com/v1
 
-// Skill
-interface SkillManager {
-  extractSkill(task: Task, codeChanges: string): Promise<Skill>;
-  invokeSkill(skillName: string, context: Context): Promise<string>;
-}
+# Azure OpenAI
+LLM_PROVIDER=azure
+OPENAI_API_KEY=your-key
+OPENAI_BASE_URL=https://your-resource.openai.azure.com/openai/deployments/gpt-4o
+
+# Ollama（本地模型）
+LLM_PROVIDER=ollama
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_MODEL=llama3
 ```
 
-## 技术栈
+### 请求配置
 
-- **运行时**: Node.js >= 20.0.0
-- **语言**: TypeScript 5.5+
-- **测试**: Vitest
-- **Lint**: ESLint + Prettier
-- **知识图谱**: GitNexus
-- **GitHub**: @octokit/rest
+```bash
+LLM_TIMEOUT_MS=120000    # 请求超时（毫秒）
+LLM_MAX_RETRIES=3        # 最大重试次数
+CIRCUIT_BREAKER_THRESHOLD=3  # 任务断路器阈值
+```
 
-## 贡献指南
+## 开发
 
-1. Fork 仓库
-2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交变更 (`git commit -m 'feat: add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建 Pull Request
+```bash
+# 运行测试
+npm test
 
-## 许可证
+# 测试 + 覆盖率
+npm run test:coverage
+
+# 代码检查
+npm run lint
+
+# 格式化
+npm run format
+
+# 开发模式（监听文件变更）
+npm run dev
+```
+
+## License
 
 MIT

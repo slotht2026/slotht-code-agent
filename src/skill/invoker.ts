@@ -1,14 +1,17 @@
 import type { Skill } from '../planner/types.js';
 import { SkillStorage } from './storage.js';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 /**
  * 技能调用接口
  */
 export class SkillInvoker {
   private storage: SkillStorage;
+  private statsPath: string;
 
   constructor(projectRoot: string = process.cwd()) {
     this.storage = new SkillStorage(projectRoot);
+    this.statsPath = `${projectRoot}/skills/usage-stats.json`;
   }
 
   /**
@@ -22,8 +25,6 @@ export class SkillInvoker {
 
     const skill = skills[0];
     const usage = this.generateUsage(skill, context);
-
-    // 记录使用统计
     this.recordUsage(skillName);
 
     return usage;
@@ -62,15 +63,13 @@ ${Object.entries(context)
    * 记录技能使用统计
    */
   private recordUsage(skillName: string): void {
-    const statsPath = `${this['storage']['skillsDir']}/usage-stats.json`;
-    let stats: Record<string, number> = {};
     try {
-      const fs = require('fs');
-      if (fs.existsSync(statsPath)) {
-        stats = JSON.parse(fs.readFileSync(statsPath, 'utf-8'));
+      let stats: Record<string, number> = {};
+      if (existsSync(this.statsPath)) {
+        stats = JSON.parse(readFileSync(this.statsPath, 'utf-8'));
       }
       stats[skillName] = (stats[skillName] || 0) + 1;
-      fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2));
+      writeFileSync(this.statsPath, JSON.stringify(stats, null, 2));
     } catch {
       // ignore
     }

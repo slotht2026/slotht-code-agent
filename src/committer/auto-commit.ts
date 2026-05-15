@@ -1,5 +1,6 @@
 import { GitOps } from './git-ops.js';
 import type { Task } from '../planner/types.js';
+import { logger } from '../core/logger.js';
 
 /**
  * 测试通过后自动提交
@@ -19,7 +20,7 @@ export class AutoCommit {
     testResults: { passed: boolean; failures: string[] }
   ): Promise<string | null> {
     if (!testResults.passed) {
-      console.log(`❌ 测试未通过，跳过提交: ${task.id}`);
+      logger.warn({ taskId: task.id }, '测试未通过，跳过提交');
       return null;
     }
 
@@ -28,23 +29,11 @@ export class AutoCommit {
     try {
       await this.git.add('.');
       await this.git.commit(message);
-      console.log(`✅ 已提交: ${message}`);
+      logger.info({ message }, '已提交');
       return message;
     } catch (error: any) {
-      console.error(`提交失败: ${error.message}`);
+      logger.error({ error: error.message }, '提交失败');
       return null;
-    }
-  }
-
-  /**
-   * 测试失败时回滚变更
-   */
-  async rollbackOnTestFail(task: Task): Promise<void> {
-    try {
-      await this.git.add('.');
-      await this.git.commit(`revert: [${task.id}] 测试失败回滚`);
-    } catch {
-      console.log('⚠️  回滚失败（可能没有变更）');
     }
   }
 }

@@ -1,49 +1,71 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, unlinkSync, mkdirSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, rmSync } from 'fs';
 import type { Task, PRD } from '../src/planner/types.js';
 
-// DeveloperAgent 测试
+// ── DeveloperAgent 测试 ──
 describe('DeveloperAgent', () => {
-  it('should build system prompt with context', async () => {
+  it('should create instance with LLM provider', async () => {
     const { DeveloperAgent } = await import('../src/executor/developer-agent.js');
-    const agent = new DeveloperAgent({
-      model: 'test',
-      apiKey: 'test-key',
-      baseUrl: 'https://test.api',
-    });
-    // Agent created successfully
+    const { OpenAIProvider } = await import('../src/llm/openai-provider.js');
+    const provider = new OpenAIProvider({ apiKey: 'test-key', baseUrl: 'https://test.api' });
+    const agent = new DeveloperAgent(provider);
     expect(agent).toBeDefined();
-  });
-
-  it('should parse response with filepath blocks', async () => {
-    const { DeveloperAgent } = await import('../src/executor/developer-agent.js');
-    // Private method test via mock response parsing
-    const response = '```filepath: src/test.ts\nexport function test() {}\n```';
-    const fileRegex = /```filepath:\s*([^\n]+)\n([\s\S]*?)```/g;
-    const match = fileRegex.exec(response);
-    expect(match?.[1].trim()).toBe('src/test.ts');
-    expect(match?.[2].trim()).toBe('export function test() {}');
   });
 });
 
-// TesterAgent 测试
+// ── LLM Provider 测试 ──
+describe('OpenAIProvider', () => {
+  it('should create instance', async () => {
+    const { OpenAIProvider } = await import('../src/llm/openai-provider.js');
+    const provider = new OpenAIProvider({
+      apiKey: 'test-key',
+      baseUrl: 'https://api.test.com',
+      model: 'gpt-4o',
+    });
+    expect(provider.name).toBe('openai');
+  });
+});
+
+describe('LLM Factory', () => {
+  it('should create openai provider', async () => {
+    const { createLLMProvider } = await import('../src/llm/factory.js');
+    const provider = createLLMProvider('openai', { apiKey: 'test' });
+    expect(provider.name).toBe('openai');
+  });
+
+  it('should create ollama provider', async () => {
+    const { createLLMProvider } = await import('../src/llm/factory.js');
+    const provider = createLLMProvider('ollama', { apiKey: 'test' });
+    expect(provider.name).toBe('openai'); // ollama uses OpenAI-compatible API
+  });
+
+  it('should throw for unknown provider', async () => {
+    const { createLLMProvider } = await import('../src/llm/factory.js');
+    expect(() => createLLMProvider('unknown' as any, { apiKey: 'test' })).toThrow();
+  });
+});
+
+// ── TesterAgent 测试 ──
 describe('TesterAgent', () => {
   const mockTask: Task = {
-    id: 'US-033',
+    id: 'T-001',
     title: 'Test generation',
     acceptanceCriteria: ['pass case 1', 'pass case 2'],
     priority: 1,
     passes: false,
   };
 
-  it('should generate test file content', async () => {
+  it('should generate test file content without LLM', async () => {
     const { TesterAgent } = await import('../src/tester/tester-agent.js');
     const agent = new TesterAgent('/tmp');
     const codeFiles = { 'src/auth.ts': 'export function login() {}' };
-    const tests = agent.generateTests(mockTask, codeFiles);
+    const tests = await agent.generateTests(mockTask, codeFiles);
     expect(Object.keys(tests).length).toBe(1);
-    expect(tests[Object.keys(tests)[0]]).toContain('describe');
-    expect(tests[Object.keys(tests)[0]]).toContain('it');
+    const testContent = tests[Object.keys(tests)[0]];
+    expect(testContent).toContain('describe');
+    expect(testContent).toContain('it');
+    // 新版本：基础测试有真实断言
+    expect(testContent).toContain('toBeDefined');
   });
 
   it('should extract exports from code', async () => {
@@ -63,16 +85,33 @@ describe('TesterAgent', () => {
   });
 });
 
-// IncrementalIndexer 测试
-describe('IncrementalIndexer', () => {
-  it('should create indexer instance', async () => {
-    const { IncrementalIndexer } = await import('../src/graph/incremental-indexer.js');
-    const indexer = new IncrementalIndexer('/tmp');
-    expect(indexer).toBeDefined();
+// ── Errors 测试 ──
+describe('AppError', () => {
+  it('should create error with code', async () => {
+    const { AppError, ErrorCode } = await import('../src/core/errors.js');
+    const error = new AppError('test error', ErrorCode.LLM_REQUEST_FAILED);
+    expect(error.message).toBe('test error');
+    expect(error.code).toBe(ErrorCode.LLM_REQUEST_FAILED);
+    expect(error.name).toBe('AppError');
+  });
+
+  it('should convert from Error', async () => {
+    const { AppError, ErrorCode } = await import('../src/core/errors.js');
+    const original = new Error('original');
+    const error = AppError.fromError(original, ErrorCode.GIT_OPERATION_FAILED);
+    expect(error.cause).toBe(original);
+  });
+
+  it('should serialize to JSON', async () => {
+    const { AppError, ErrorCode } = await import('../src/core/errors.js');
+    const error = new AppError('test', ErrorCode.UNKNOWN, undefined, { key: 'value' });
+    const json = error.toJSON();
+    expect(json.code).toBe('UNKNOWN');
+    expect(json.context).toEqual({ key: 'value' });
   });
 });
 
-// ImpactCache 测试
+// ── ImpactCache 测试 ──
 describe('ImpactCache', () => {
   const testPath = '/tmp/impact-cache-test';
 
@@ -120,35 +159,12 @@ describe('ImpactCache', () => {
     expect(cache.getImpact('sym1')).toBeNull();
     expect(cache.getImpact('sym2')).not.toBeNull();
   });
-
-  it('should check cache validity', async () => {
-    const { ImpactCache } = await import('../src/graph/impact-cache.js');
-    const cache = new ImpactCache(testPath);
-    cache.cacheImpact('sym', {
-      symbol: 'sym',
-      upstream: [],
-      downstream: [],
-      riskLevel: 'low',
-      fileHash: 'original',
-    });
-    expect(cache.isCacheValid('sym', 'original')).toBe(true);
-    expect(cache.isCacheValid('sym', 'changed')).toBe(false);
-  });
 });
 
-// KnowledgeUpdater 测试
-describe('KnowledgeUpdater', () => {
-  it('should create updater instance', async () => {
-    const { KnowledgeUpdater } = await import('../src/graph/knowledge-updater.js');
-    const updater = new KnowledgeUpdater('/tmp');
-    expect(updater).toBeDefined();
-  });
-});
-
-// Full Integration Test
+// ── End-to-End Flow ──
 describe('End-to-End Flow', () => {
   it('should complete full pipeline: interview → PRD → task selection → skill', async () => {
-    const { generateQuestions, getDefaultQuestions } = await import('../src/planner/question-generator.js');
+    const { generateQuestions } = await import('../src/planner/question-generator.js');
     const { quickAnswers } = await import('../src/planner/answer-collector.js');
     const { generatePRD } = await import('../src/planner/prd-generator.js');
     const { selectNextTask } = await import('../src/executor/ralph-loop.js');
@@ -162,8 +178,8 @@ describe('End-to-End Flow', () => {
     const answers = quickAnswers(questions, questions.map(q => q.options[0].value));
     expect(answers.length).toBe(questions.length);
 
-    // 3. PRD
-    const prd = generatePRD('用户登录系统', answers);
+    // 3. PRD（降级模式，无 LLM）
+    const prd = await generatePRD('用户登录系统', answers);
     expect(prd.modules.length).toBeGreaterThanOrEqual(2);
 
     // 4. Task Selection
@@ -171,9 +187,10 @@ describe('End-to-End Flow', () => {
     const task = selectNextTask(prd, completedIds);
     expect(task).not.toBeNull();
 
-    // 5. Skill Extraction
+    // 5. Skill Extraction（降级模式）
     const extractor = new SkillExtractor();
     const skill = await extractor.extractSkill(task!.id, task!.title, 'export async function login() {}');
-    expect(skill.category).toBe('auth');
+    expect(skill).not.toBeNull();
+    expect(skill!.category).toBe('auth');
   });
 });

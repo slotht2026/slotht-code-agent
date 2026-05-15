@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, unlinkSync, appendFileSync, writeFileSync, readFileSync } from 'fs';
 import type { PRD, ProgressLog } from '../src/planner/types.js';
+import { ProgressLogger } from '../src/core/progress-logger.js';
 
-// Pure function copy to avoid import resolution issues
+// ── Task Selector ──
 function selectNextTask(prd: PRD, completedIds: Set<string>) {
   const allTasks = prd.modules.flatMap((m) => m.tasks);
   const pending = allTasks.filter((t) => !completedIds.has(t.id) && !t.passes);
@@ -39,8 +40,7 @@ describe('Task Selector', () => {
     expect(task?.id).toBe('T1');
   });
 
-  it('should select T2 after T1 is done (T2 depends on T1)', () => {
-    // T1 done, T2 dependency met, T2 has priority 2 (higher than T3's 3)
+  it('should select T2 after T1 is done', () => {
     const task = selectNextTask(mockPRD, new Set(['T1']));
     expect(task?.id).toBe('T2');
   });
@@ -66,41 +66,17 @@ describe('Task Selector', () => {
   });
 });
 
-// ProgressLogger inline implementation for testing
-class ProgressLogger {
-  private logPath: string;
-  constructor(projectRoot: string) {
-    this.logPath = `${projectRoot}/slotht-progress-test.txt`;
-    if (!existsSync(this.logPath)) {
-      writeFileSync(this.logPath, '# slotht-code-agent Progress Log\n\n', 'utf-8');
-    }
-  }
-  appendLesson(taskId: string, lesson: string): void {
-    const timestamp = new Date().toISOString();
-    appendFileSync(this.logPath, `\n## ${timestamp} - ${taskId}\n${lesson}\n---\n`, 'utf-8');
-  }
-  getLessons(taskId?: string): ProgressLog[] {
-    if (!existsSync(this.logPath)) return [];
-    const content = readFileSync(this.logPath, 'utf-8');
-    const entries = content.split('---').filter(Boolean).map((block) => {
-      const lines = block.trim().split('\n');
-      const match = (lines[0] || '').match(/## (.+?) - (.+)/);
-      return { timestamp: match?.[1] || '', taskId: match?.[2] || '', lesson: lines.slice(1).join('\n').trim() };
-    });
-    return taskId ? entries.filter((e) => e.taskId === taskId) : entries;
-  }
-}
-
+// ── ProgressLogger ──
 describe('ProgressLogger', () => {
   const testPath = '/tmp';
-  const logFile = `${testPath}/slotht-progress-test.txt`;
+  const logFile = `${testPath}/progress.txt`;
 
   beforeEach(() => { if (existsSync(logFile)) unlinkSync(logFile); });
   afterEach(() => { if (existsSync(logFile)) unlinkSync(logFile); });
 
   it('should append and read lessons', () => {
     const logger = new ProgressLogger(testPath);
-    logger.appendLesson('US-001', 'Test lesson content');
+    logger.appendLesson('T-001', 'Test lesson content');
     const lessons = logger.getLessons();
     expect(lessons.length).toBeGreaterThanOrEqual(1);
     expect(lessons.some((l) => l.lesson.includes('Test lesson content'))).toBe(true);
@@ -108,9 +84,23 @@ describe('ProgressLogger', () => {
 
   it('should filter by task ID', () => {
     const logger = new ProgressLogger(testPath);
-    logger.appendLesson('US-001', 'Lesson A');
-    logger.appendLesson('US-002', 'Lesson B');
-    const lessons = logger.getLessons('US-001');
-    expect(lessons.every((l) => l.taskId === 'US-001')).toBe(true);
+    logger.appendLesson('T-001', 'Lesson A');
+    logger.appendLesson('T-002', 'Lesson B');
+    const lessons = logger.getLessons('T-001');
+    expect(lessons.every((l) => l.taskId === 'T-001')).toBe(true);
+  });
+});
+
+// ── PRD Generator (降级模式) ──
+describe('PRD Generator', () => {
+  it('should generate PRD without LLM (template mode)', async () => {
+    const { generatePRD } = await import('../src/planner/prd-generator.js');
+    const prd = await generatePRD('用户登录系统', [
+      { questionId: 'database', selectedOption: 'postgres_prisma' },
+      { questionId: 'frontend', selectedOption: 'backend_only' },
+    ]);
+    expect(prd.project).toBe('用户登录系统');
+    expect(prd.modules.length).toBeGreaterThanOrEqual(2);
+    expect(prd.modules.flatMap(m => m.tasks).length).toBeGreaterThanOrEqual(3);
   });
 });
